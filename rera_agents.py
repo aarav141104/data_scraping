@@ -1,3 +1,4 @@
+import concurrent.futures
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -5,14 +6,12 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 import pandas as pd
-import pdfkit
-import os
-from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from selenium.webdriver.chrome.options import Options
-import concurrent.futures
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 
+# Configure Selenium WebDriver
 options = Options()
 options.add_argument("--headless")
 options.add_argument("--no-sandbox")
@@ -21,7 +20,7 @@ url = "https://maharera.maharashtra.gov.in/agents-search-result"
 service = Service(executable_path="./chromedriver")
 driver = webdriver.Chrome(service=service, options=options)
 driver.get(url)
-links = []  ## to store the links
+links = []  # to store the links
 df = pd.read_excel(
     "CP data fields to be scraped (1).xlsx", sheet_name="RERA Agent Data"
 )
@@ -30,9 +29,9 @@ df_scraped = pd.DataFrame(columns=key_names)
 certificate_number_tracker = 0
 
 
-## This function extracts the links of the view details button from each rera agent
+# This function extracts the links of the view details button from each RERA agent
 def extract_links(soup):
-    global links, df_scraped, certificate_number_tracker
+    global links, certificate_number_tracker
     for row in soup.find("tbody").find_all("tr"):
         cols = row.find_all("td")
         df_scraped.loc[certificate_number_tracker] = {
@@ -44,7 +43,7 @@ def extract_links(soup):
         links.append(view_details)
 
 
-##This function gets the text of the required field and returns the next element
+# This function gets the text of the required field and returns the next element
 def find_text(label, soup):
     element = soup.find(string=label)
     if element:
@@ -56,7 +55,6 @@ def find_text(label, soup):
 def adjust_column_width(file_path):
     wb = load_workbook(file_path)
     ws = wb.active
-
     for column in ws.columns:
         max_length = 0
         column = list(column)
@@ -66,11 +64,15 @@ def adjust_column_width(file_path):
         adjusted_width = min(max_length + 2, 50)  # Adding some padding, max width 50
         column_letter = get_column_letter(column[0].column)
         ws.column_dimensions[column_letter].width = adjusted_width
-
     wb.save(file_path)
 
 
-### LINKS EXTRACTION STARTS HERE
+def save_progress(df_scraped, file_path="output.xlsx"):
+    df_scraped.to_excel(file_path, index=False)
+    adjust_column_width(file_path)
+
+
+########################################LINKS EXTRACTION STARTS HERE########################################
 page_num = 1
 while True:
     try:
@@ -90,13 +92,10 @@ while True:
             if next_button and "disabled" in next_button.get("class", []):
                 print("No more pages to explore")
                 break
-            # If the next button exists and is not disabled, click it
             if next_button:
                 next_button_href = next_button["href"]
                 driver.get(next_button_href)
-                # Wait for the next page to load
                 WebDriverWait(driver, 5).until(EC.staleness_of(table))
-                # Increment page number
                 page_num += 1
             else:
                 print("No next button found")
@@ -108,18 +107,22 @@ while True:
         print("Error during table extraction:", e)
         break
 
-########################################LINK EXTRACTION ENDS ################################################
+########################################LINK EXTRACTION ENDS########################################
 
 
 def process_link(link):
+    options = webdriver.ChromeOptions()
+    options.add_argument("--headless")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    driver = webdriver.Chrome(service=Service("./chromedriver"), options=options)
     details = {}
     try:
-        local_driver = webdriver.Chrome(service=service, options=options)
-        local_driver.get(link)
-        WebDriverWait(local_driver, 10).until(
+        driver.get(link)
+        WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
-        soup = BeautifulSoup(local_driver.page_source, "html.parser")
+        soup = BeautifulSoup(driver.page_source, "html.parser")
         details = {
             "Information_Type": find_text("Information Type", soup),
             "First_Name": find_text("First Name", soup),
@@ -155,16 +158,16 @@ def process_link(link):
             "Promoted_Certificate_Number": [],
         }
         try:
-            details["Do_you_have_any_Past_Experience"] = local_driver.find_element(
+            details["Do_you_have_any_Past_Experience"] = driver.find_element(
                 By.XPATH,
                 '//div[contains(text(),"Do you have any Past Experience ?")]/following-sibling::div[1]',
             ).text
-        except NoSuchElementException as e:
+        except NoSuchElementException:
             details["Do_you_have_any_Past_Experience"] = "N/A"
 
-        ## Below is the past experience table extraction
+        # Below is the past experience table extraction
         try:
-            table = WebDriverWait(local_driver, 1).until(
+            table = WebDriverWait(driver, 1).until(
                 EC.presence_of_element_located(
                     (
                         By.XPATH,
@@ -179,11 +182,11 @@ def process_link(link):
                     number_of_past_experience = row.find_all("td")[0].text
             if number_of_past_experience:
                 details["Past_Experience_Projects_Count"] = number_of_past_experience
-        except (TimeoutException, NoSuchElementException) as e:
+        except (TimeoutException, NoSuchElementException):
             details["Past_Experience_Projects_Count"] = "N/A"
 
         try:
-            details["Agent_Registration_in_Other_State"] = local_driver.find_element(
+            details["Agent_Registration_in_Other_State"] = driver.find_element(
                 By.XPATH,
                 '//h2[contains(text(),"Agent Registration in Other State")]/../following-sibling::h4[1]',
             ).get_attribute("textContent")
@@ -191,7 +194,7 @@ def process_link(link):
             details["Agent_Registration_in_Other_State"] = "N/A"
 
         try:
-            table = WebDriverWait(local_driver, 1).until(
+            table = WebDriverWait(driver, 1).until(
                 EC.presence_of_element_located(
                     (
                         By.XPATH,
@@ -215,17 +218,16 @@ def process_link(link):
             details["Branch_Address"] = ",".join(details["Branch_Address"])
             details["Email_ID"] = ",".join(details["Email_ID"])
             details["Fax_Number"] = ",".join(details["Fax_Number"])
-        except (TimeoutException, NoSuchElementException) as e:
+        except (TimeoutException, NoSuchElementException):
             details["Sr.No."] = "N/A"
             details["Branch_Name"] = "N/A"
             details["LandLine_Number"] = "N/A"
             details["Branch_Address"] = "N/A"
             details["Email_ID"] = "N/A"
-            details["Fax_Number"] = "N/A"
             details["Multiple_Branches"] = "No"
 
         try:
-            table = local_driver.find_element(
+            table = driver.find_element(
                 By.XPATH,
                 '//h3[contains(text(),"Promoter Details")]/../../following-sibling::div[1]//div//table',
             )
@@ -241,31 +243,33 @@ def process_link(link):
             details["Promoted_Certificate_Number"] = ",".join(
                 details["Promoted_Certificate_Number"]
             )
-        except NoSuchElementException as e:
+        except NoSuchElementException:
             details["Promoter_Name"] = "N/A"
             details["Project_Name"] = "N/A"
             details["Promoted_Projects"] = "N/A"
             details["Promoted_Certificate_Number"] = "N/A"
-    except:
-        print("shite")
-    return details
+        return details
+    except Exception as e:
+        print(f"Error processing link {link}: {e}")
+        return None
+    finally:
+        driver.quit()
 
 
+storing = 0
 with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-    futures = {executor.submit(process_link, link): link for link in links}
-    for idx, future in enumerate(concurrent.futures.as_completed(futures)):
-        link = futures[future]
-        try:
-            data = future.result()
-            if data:
-                for key, value in data.items():
-                    if key in df_scraped.columns:
-                        df_scraped.at[idx, key] = value
-                df_scraped.to_excel("output.xlsx", index=False)
-                adjust_column_width("output.xlsx")
-        except Exception as e:
-            print(f"Error processing link {link}: {e}")
+    iterable = list(executor.map(process_link, links))
+    for it in iterable:
+        for key, value in it.items():
+            if key == "_id" or key == "Professional_Rera_certificate_no":
+                continue
+            df_scraped.at[storing, key] = value
+        storing += 1
+        if (storing % 10 == 0) or (storing == len(links)):
+            save_progress(df_scraped)
+
+save_progress(df_scraped)
 
 
-# Close the driver
+# Close the main driver
 driver.quit()
