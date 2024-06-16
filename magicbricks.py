@@ -8,6 +8,10 @@ import pandas as pd
 import pdfkit
 import os
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
+import concurrent.futures
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+from selenium.webdriver.chrome.options import Options
 
 service = Service(executable_path="./chromedriver")
 driver = webdriver.Chrome(service=service)
@@ -23,9 +27,33 @@ see_details = WebDriverWait(driver, 6).until(
 )
 
 
-def properties_for_sale_1(driver):
-    global magic_dict
+def save_progress(df_scraped, file_path="output.xlsx"):
+    df_scraped.to_excel(file_path, index=False)
+    adjust_column_width(file_path)
 
+
+def adjust_column_width(file_path):
+    wb = load_workbook(file_path)
+    ws = wb.active
+    for column in ws.columns:
+        max_length = 0
+        column = list(column)
+        for cell in column:
+            if cell.value:
+                max_length = max(max_length, len(str(cell.value)))
+        adjusted_width = min(max_length + 2, 50)  # Adding some padding, max width 50
+        column_letter = get_column_letter(column[0].column)
+        ws.column_dimensions[column_letter].width = adjusted_width
+    wb.save(file_path)
+
+
+def properties_for_sale_1(url):
+    global magic_dict
+    driver = webdriver.Chrome(service=Service("./chromedriver"))
+    driver.get(url)
+    WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.TAG_NAME, "body"))
+    )
     try:
         # Locate the "See all" button
         see_all_button = WebDriverWait(driver, 10).until(
@@ -36,78 +64,66 @@ def properties_for_sale_1(driver):
                 )
             )
         )
-
-        # Extract the URL from the onclick attribute using JavaScript
-        see_all_url = driver.execute_script(
-            "return arguments[0].getAttribute('onclick').match(/'([^']+)'/)[1];",
-            see_all_button,
+        see_all_button.click()
+        driver.implicitly_wait(10)
+        new_tab = driver.window_handles[-1]
+        driver.switch_to.window(new_tab)
+        WebDriverWait(driver, 12).until(
+            EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
-        print(f"See all URL: {see_all_url}")
-
-        # Navigate to the extracted URL
-        driver.get(see_all_url)
-        print("Navigated to 'See all' URL.")
-
-        # Wait for the new page to load
-        WebDriverWait(driver, 20).until(
-            EC.presence_of_element_located(
-                (By.XPATH, '//div[contains(@class,"mb-srp__list")]')
-            )
-        )
-        print("New page loaded.")
-
-        # Scroll to the bottom to ensure all elements are loaded
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        print("Scrolled to the bottom of the page.")
-
-        # Explicitly wait for the elements to be present
         all_elements = WebDriverWait(driver, 20).until(
             EC.presence_of_all_elements_located(
                 (By.XPATH, '//div[contains(@class,"mb-srp__list")]')
             )
         )
-
-        print(f"Number of property elements found: {len(all_elements)}")
-
         for element in all_elements:
-            try:
-                project = element.find_element(
-                    By.XPATH, './/h2[contains(@class,"mb-srp__card--title")]'
-                )
-                driver.execute_script("arguments[0].click();", project)
-                print("Clicked on project title.")
+            element.click()
+            driver.implicitly_wait(5)
+            new_tab_2 = driver.window_handles[-1]
+            driver.switch_to.window(new_tab_2)
+            print(driver.current_url)
+    except:
+        print("something")
+    finally:
+        print("finally")
+        # try:
+        #     project = element.find_element(
+        #         By.XPATH, './/h2[contains(@class,"mb-srp__card--title")]'
+        #     )
+        #     driver.execute_script("arguments[0].click();", project)
+        #     print("Clicked on project title.")
 
-                WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.TAG_NAME, "body"))
-                )
+        #     WebDriverWait(driver, 10).until(
+        #         EC.presence_of_element_located((By.TAG_NAME, "body"))
+        #     )
 
-                magic_dict["Properties for sale"] = (
-                    "Ticket Size : "
-                    + driver.find_element(
-                        By.XPATH, '//div[contains(@class,"mb-ldp__dtls__price")]'
-                    ).get_attribute("textContent")
-                )
-                break
-            except NoSuchElementException:
-                print(
-                    "Project title or price element not found within the property element."
-                )
-    except NoSuchElementException as e:
-        print(f"An error occurred: NoSuchElementException: {e}")
-    except TimeoutException as e:
-        print(f"An error occurred: TimeoutException: {e}")
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+        #     magic_dict["Properties for sale"] = (
+        #         "Ticket Size : "
+        #         + driver.find_element(
+        #             By.XPATH, '//div[contains(@class,"mb-ldp__dtls__price")]'
+        #         ).get_attribute("textContent")
+        #     )
+        #     break
+        # except NoSuchElementException:
+        #     print(
+        #         "Project title or price element not found within the property element."
+    #             #)
+    # except NoSuchElementException as e:
+    #     print(f"An error occurred: NoSuchElementException: {e}")
+    # except TimeoutException as e:
+    #     print(f"An error occurred: TimeoutException: {e}")
+    # except Exception as e:
+    #     print(f"An unexpected error occurred: {e}")
 
 
-for idx, see_detail in enumerate(see_details):
+def process_link(see_detail):
+    global magic_dict
     detail_url = see_detail.get_attribute("href")
-    print(type(detail_url))
     driver.get(detail_url)
     WebDriverWait(driver, 10).until(
         EC.presence_of_element_located((By.TAG_NAME, "body"))
     )
-
     try:
         magic_dict["Name"] = driver.find_element(
             By.XPATH,
@@ -223,45 +239,19 @@ for idx, see_detail in enumerate(see_details):
     except NoSuchElementException:
         print("Some issue with locating elements")
         magic_dict["About Company"] = "N/A"
-    properties_for_sale_1(driver)
-    for key, value in magic_dict.items():
-        if key in df_magic.columns:
-            df_magic.at[idx, key] = value
-    break
+    properties_for_sale_1(detail_url)
 
 
-def save_file_to_pdf(df, pdf_filename):
-    html_content = df.to_html()
-    html_with_style = f"""
-    <html>
-    <head>
-    <style>
-    table {{ 
-        width: 100%; 
-        border-collapse: collapse; 
-        font-size: 8px; 
-    }}
-    table, th, td {{ 
-        border: 1px solid black; 
-        text-align: left; 
-        padding: 5px;
-    }}
-    </style>
-    </head>
-    <body>
-    {html_content}
-    </body>
-    </html>
-    """
-    with open("temp.html", "w") as f:
-        f.write(html_with_style)
-    options = {"page-size": "A3", "orientation": "Landscape"}
-    pdfkit.from_file("temp.html", pdf_filename, options=options)
-    if os.path.exists("temp.html"):
-        os.remove("temp.html")
+c = 0
+with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+    iterable = list(executor.map(process_link, see_details[:10]))
+    for it in iterable:
+        df_magic.loc[c] = it
+    c += 1
+    if (c % 10 == 0) or (c == len(see_details)):
+        save_progress(df_magic)
 
+save_progress(df_magic)
 
-# Save the DataFrame to PDF
-save_file_to_pdf(df_magic, "output.pdf")
 
 driver.quit()

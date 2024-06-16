@@ -10,8 +10,14 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
+import pickle
+import logging
 
-# Configure Selenium WebDriver
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+
 options = Options()
 options.add_argument("--headless")
 options.add_argument("--no-sandbox")
@@ -29,9 +35,9 @@ df_scraped = pd.DataFrame(columns=key_names)
 certificate_number_tracker = 0
 
 
-# This function extracts the links of the view details button from each RERA agent
+############################################FUNCTIONS#########################################################
 def extract_links(soup):
-    global links, certificate_number_tracker
+    global links, certificate_number_tracker, df_scraped
     for row in soup.find("tbody").find_all("tr"):
         cols = row.find_all("td")
         df_scraped.loc[certificate_number_tracker] = {
@@ -61,7 +67,7 @@ def adjust_column_width(file_path):
         for cell in column:
             if cell.value:
                 max_length = max(max_length, len(str(cell.value)))
-        adjusted_width = min(max_length + 2, 50)  # Adding some padding, max width 50
+        adjusted_width = min(max_length + 2, 50)
         column_letter = get_column_letter(column[0].column)
         ws.column_dimensions[column_letter].width = adjusted_width
     wb.save(file_path)
@@ -72,12 +78,27 @@ def save_progress(df_scraped, file_path="output.xlsx"):
     adjust_column_width(file_path)
 
 
+def save_links_to_file(links, filename="links.pkl"):
+    with open(filename, "wb") as f:
+        pickle.dump(links, f)
+
+
+def load_links_from_file(filename="links.pkl"):
+    try:
+        with open(filename, "rb") as f:
+            return pickle.load(f)
+    except (FileNotFoundError, EOFError):
+        return []
+
+
+############################################FUNCTIONS#########################################################
+
+
 ########################################LINKS EXTRACTION STARTS HERE########################################
 page_num = 1
+
 while True:
     try:
-        if page_num == 4:
-            break
         table = WebDriverWait(driver, 5).until(
             EC.presence_of_element_located(
                 (By.XPATH, '//div[@class="tableBox"]//div[@class="tableOuter"]//table')
@@ -86,6 +107,7 @@ while True:
         html_content = table.get_attribute("outerHTML")
         soup = BeautifulSoup(html_content, "html.parser")
         extract_links(soup)
+        save_links_to_file(links)
         try:
             soup = BeautifulSoup(driver.page_source, "html.parser")
             next_button = soup.find("a", {"class": "next"})
@@ -256,13 +278,15 @@ def process_link(link):
         driver.quit()
 
 
-storing = 0
+storing = 1100
 with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
     iterable = list(executor.map(process_link, links))
     for it in iterable:
         for key, value in it.items():
             if key == "_id" or key == "Professional_Rera_certificate_no":
                 continue
+            if isinstance(value, list):
+                value = ", ".join(value)
             df_scraped.at[storing, key] = value
         storing += 1
         if (storing % 10 == 0) or (storing == len(links)):
