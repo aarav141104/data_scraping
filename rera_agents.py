@@ -17,7 +17,6 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-
 options = Options()
 options.add_argument("--headless")
 options.add_argument("--no-sandbox")
@@ -34,22 +33,28 @@ key_names = df.iloc[:, 0].tolist()
 df_scraped = pd.DataFrame(columns=key_names)
 certificate_number_tracker = 0
 
+logging.info("Starting link extraction process")
+
 
 ############################################FUNCTIONS#########################################################
 def extract_links(soup):
     global links, certificate_number_tracker, df_scraped
-    for row in soup.find("tbody").find_all("tr"):
-        cols = row.find_all("td")
-        df_scraped.loc[certificate_number_tracker] = {
-            "_id": certificate_number_tracker,
-            "Professional_Rera_certificate_no": cols[2].text.strip(),
-        }
-        certificate_number_tracker += 1
-        view_details = cols[3].find("a")["href"]
-        links.append(view_details)
+    try:
+        for row in soup.find("tbody").find_all("tr"):
+            cols = row.find_all("td")
+            df_scraped.loc[certificate_number_tracker] = {
+                "_id": certificate_number_tracker,
+                "Professional_Rera_certificate_no": cols[2].text.strip(),
+            }
+            certificate_number_tracker += 1
+            view_details = cols[3].find("a")["href"]
+            links.append(view_details)
+    except Exception as e:
+        print("something went wrong in this function")
+    logging.info(f"Extracted {len(links)} links so far")
+    save_progress(df_scraped)
 
 
-# This function gets the text of the required field and returns the next element
 def find_text(label, soup):
     element = soup.find(string=label)
     if element:
@@ -76,11 +81,27 @@ def adjust_column_width(file_path):
 def save_progress(df_scraped, file_path="output.xlsx"):
     df_scraped.to_excel(file_path, index=False)
     adjust_column_width(file_path)
+    logging.info(f"Progress saved to {file_path}")
 
 
 def save_links_to_file(links, filename="links.pkl"):
     with open(filename, "wb") as f:
         pickle.dump(links, f)
+    logging.info(f"Links saved to {filename}")
+
+
+def load_details_from_file(filename="details.pkl"):
+    try:
+        with open(filename, "rb") as f:
+            return pickle.load(f)
+    except (FileNotFoundError, EOFError):
+        return {}
+
+
+def save_details_to_file(details, filename="details.pkl"):
+    with open(filename, "wb") as f:
+        pickle.dump(details, f)
+    logging.info(f"Details saved to {filename}")
 
 
 def load_links_from_file(filename="links.pkl"):
@@ -93,13 +114,13 @@ def load_links_from_file(filename="links.pkl"):
 
 ############################################FUNCTIONS#########################################################
 
-
 ########################################LINKS EXTRACTION STARTS HERE########################################
 page_num = 1
 
 while True:
     try:
-        table = WebDriverWait(driver, 5).until(
+        logging.info(f"Extracting links from page {page_num}")
+        table = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located(
                 (By.XPATH, '//div[@class="tableBox"]//div[@class="tableOuter"]//table')
             )
@@ -112,7 +133,7 @@ while True:
             soup = BeautifulSoup(driver.page_source, "html.parser")
             next_button = soup.find("a", {"class": "next"})
             if next_button and "disabled" in next_button.get("class", []):
-                print("No more pages to explore")
+                logging.info("No more pages to explore")
                 break
             if next_button:
                 next_button_href = next_button["href"]
@@ -120,16 +141,19 @@ while True:
                 WebDriverWait(driver, 5).until(EC.staleness_of(table))
                 page_num += 1
             else:
-                print("No next button found")
+                logging.info("No next button found")
                 break
         except Exception as e:
-            print("Error while finding or clicking the next button:", e)
+            logging.error(f"Error while finding or clicking the next button: {e}")
             break
     except Exception as e:
-        print("Error during table extraction:", e)
-        break
+        logging.error(f"Error during table extraction: {e}")
+
 
 ########################################LINK EXTRACTION ENDS########################################
+
+logging.info("Starting link processing")
+links = load_links_from_file()
 
 
 def process_link(link):
@@ -145,6 +169,9 @@ def process_link(link):
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
         soup = BeautifulSoup(driver.page_source, "html.parser")
+        maharera = soup.find(string="MahaRERA Application")
+        if maharera == None:
+            return None
         details = {
             "Information_Type": find_text("Information Type", soup),
             "First_Name": find_text("First Name", soup),
@@ -270,30 +297,32 @@ def process_link(link):
             details["Project_Name"] = "N/A"
             details["Promoted_Projects"] = "N/A"
             details["Promoted_Certificate_Number"] = "N/A"
+        save_details_to_file(details)
         return details
     except Exception as e:
-        print(f"Error processing link {link}: {e}")
+        logging.error(f"Error processing link {link}: {e}")
         return None
     finally:
         driver.quit()
 
 
-storing = 1100
+storing = 0
 with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
     iterable = list(executor.map(process_link, links))
     for it in iterable:
-        for key, value in it.items():
-            if key == "_id" or key == "Professional_Rera_certificate_no":
-                continue
-            if isinstance(value, list):
-                value = ", ".join(value)
-            df_scraped.at[storing, key] = value
+        if it:
+            for key, value in it.items():
+                if key == "_id" or key == "Professional_Rera_certificate_no":
+                    continue
+                if isinstance(value, list):
+                    value = ", ".join(value)
+                df_scraped.at[storing, key] = value
         storing += 1
+        logging.info(f"Processed {storing} links")
         if (storing % 10 == 0) or (storing == len(links)):
             save_progress(df_scraped)
 
 save_progress(df_scraped)
-
 
 # Close the main driver
 driver.quit()

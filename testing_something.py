@@ -1,8 +1,8 @@
 import pandas as pd
 import pickle
-
-hello = pd.read_excel("output.xlsx")
-print(hello.shape[0])
+import time
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
 
 
 def load_links_from_file(filename="links.pkl"):
@@ -13,6 +13,7 @@ def load_links_from_file(filename="links.pkl"):
         return []
 
 
-helo = load_links_from_file()
+links = load_links_from_file()
 
-print(len(helo))
+print(links[0])
+print(len(links))
