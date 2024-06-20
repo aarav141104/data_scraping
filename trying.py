@@ -54,7 +54,12 @@ def each_page(page_num):
         print(f"No table found on page {page_num}")
         return []
 
-    for row in table.find_all("tr")[1:]:
+    tbody = table.find("tbody")
+    if not tbody:
+        print(f"No tbody found in table on page {page_num}")
+        return []
+
+    for row in tbody.find_all("tr"):
         details = {}
         data = row.find_all("td")
         if len(data) < 4:
@@ -106,35 +111,64 @@ def each_page(page_num):
         details["Do_you_have_any_Past_Experience"] = find_text(
             "Do you have any Past Experience ?", local_soup
         )
-        ###Multiple branches thing starts here:
+
+        # Multiple branches extraction
         branch_details_element = local_soup.find(
             "h2", string=re.compile("Branch Details", re.IGNORECASE)
         )
         if branch_details_element:
-            table = branch_details_element.find_next("table")
-            if table:
-                for row in table.find("tbody").find_all("tr"):
-                    cols = row.find_all("td")
-                    details["Sr.No."].append(cols[0].text.strip())
-                    details["Branch_Name"].append(cols[1].text.strip())
-                    details["LandLine_Number"].append(cols[2].text.strip())
-                    details["Branch_Address"].append(cols[3].text.strip())
-                    details["Email_ID"].append(cols[4].text.strip())
-                    details["Fax_Number"].append(cols[5].text.strip())
-                # Joining lists to create a single string for each field
-                details["Sr.No."] = ", ".join(details["Sr.No."])
-                details["Branch_Name"] = ", ".join(details["Branch_Name"])
-                details["LandLine_Number"] = ", ".join(details["LandLine_Number"])
-                details["Branch_Address"] = ", ".join(details["Branch_Address"])
-                details["Email_ID"] = ", ".join(details["Email_ID"])
-                details["Fax_Number"] = ", ".join(details["Fax_Number"])
-            else:
-                details["Sr.No."] = "N/A"
-                details["Branch_Name"] = "N/A"
-                details["LandLine_Number"] = "N/A"
-                details["Branch_Address"] = "N/A"
-                details["Email_ID"] = "N/A"
-                details["Fax_Number"] = "N/A"
+            branch_table = branch_details_element.find_next("table")
+            if branch_table:
+                branch_tbody = branch_table.find("tbody")
+                if branch_tbody:
+                    for row in branch_tbody.find_all("tr"):
+                        cols = row.find_all("td")
+                        details["Sr.No."].append(cols[0].text.strip())
+                        details["Branch_Name"].append(cols[1].text.strip())
+                        details["LandLine_Number"].append(cols[2].text.strip())
+                        details["Branch_Address"].append(cols[3].text.strip())
+                        details["Email_ID"].append(cols[4].text.strip())
+                        details["Fax_Number"].append(cols[5].text.strip())
+                    # Joining lists to create a single string for each field
+                    details["Sr.No."] = ", ".join(details["Sr.No."])
+                    details["Branch_Name"] = ", ".join(details["Branch_Name"])
+                    details["LandLine_Number"] = ", ".join(details["LandLine_Number"])
+                    details["Branch_Address"] = ", ".join(details["Branch_Address"])
+                    details["Email_ID"] = ", ".join(details["Email_ID"])
+                    details["Fax_Number"] = ", ".join(details["Fax_Number"])
+                else:
+                    details["Sr.No."] = "N/A"
+                    details["Branch_Name"] = "N/A"
+                    details["LandLine_Number"] = "N/A"
+                    details["Branch_Address"] = "N/A"
+                    details["Email_ID"] = "N/A"
+                    details["Fax_Number"] = "N/A"
+
+        # Promoter details extraction
+        promoter_details_element = local_soup.find(
+            "h3", string=re.compile("Promoter Details", re.IGNORECASE)
+        )
+        if promoter_details_element:
+            promoter_table = promoter_details_element.find_next("table")
+            if promoter_table:
+                promoter_tbody = promoter_table.find("tbody")
+                if promoter_tbody:
+                    for row in promoter_tbody.find_all("tr"):
+                        cols = row.find_all("td")
+                        details["Promoter_Name"].append(cols[0].text.strip())
+                        details["Project_Name"].append(cols[1].text.strip())
+                        details["Promoted_Certificate_Number"].append(
+                            cols[2].text.strip()
+                        )
+                    details["Promoter_Name"] = ", ".join(details["Promoter_Name"])
+                    details["Project_Name"] = ", ".join(details["Project_Name"])
+                    details["Promoted_Certificate_Number"] = ", ".join(
+                        details["Promoted_Certificate_Number"]
+                    )
+                else:
+                    details["Promoter_Name"] = "N/A"
+                    details["Project_Name"] = "N/A"
+                    details["Promoted_Certificate_Number"] = "N/A"
         list_of_dictionaries.append(details)
     return list_of_dictionaries
 
