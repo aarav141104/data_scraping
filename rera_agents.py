@@ -32,26 +32,38 @@ df = pd.read_excel(
 key_names = df.iloc[:, 0].tolist()
 df_scraped = pd.DataFrame(columns=key_names)
 certificate_number_tracker = 0
+details_list = []
 
 logging.info("Starting link extraction process")
 
 
 ############################################FUNCTIONS#########################################################
 def extract_links(soup):
-    global links, certificate_number_tracker, df_scraped
+    global links, certificate_number_tracker, df_scraped, details_list
     try:
         for row in soup.find("tbody").find_all("tr"):
             cols = row.find_all("td")
-            df_scraped.loc[certificate_number_tracker] = {
-                "_id": certificate_number_tracker,
-                "Professional_Rera_certificate_no": cols[2].text.strip(),
-            }
-            certificate_number_tracker += 1
+            print("HELLO 1")
             view_details = cols[3].find("a")["href"]
+            print("HELLO 2")
             links.append(view_details)
+            print("HELLO 3")
+            details = process_link(view_details)
+            print("HELLO 4")
+            details_list.append(details)
+            details.update(
+                {
+                    "_id": certificate_number_tracker,
+                    "Professional_Rera_certificate_no": cols[2].text.strip(),
+                }
+            )
+            df_scraped.loc[certificate_number_tracker] = details
+            certificate_number_tracker += 1
+        save_links_to_file(links)
     except Exception as e:
         print("something went wrong in this function")
     logging.info(f"Extracted {len(links)} links so far")
+    logging.info(f"Added to details dictionary {len(details_list)} details")
     save_progress(df_scraped)
 
 
@@ -116,7 +128,6 @@ def load_links_from_file(filename="links.pkl"):
 
 ########################################LINKS EXTRACTION STARTS HERE########################################
 page_num = 1
-
 while True:
     try:
         logging.info(f"Extracting links from page {page_num}")
@@ -128,7 +139,6 @@ while True:
         html_content = table.get_attribute("outerHTML")
         soup = BeautifulSoup(html_content, "html.parser")
         extract_links(soup)
-        save_links_to_file(links)
         try:
             soup = BeautifulSoup(driver.page_source, "html.parser")
             next_button = soup.find("a", {"class": "next"})
@@ -148,6 +158,7 @@ while True:
             break
     except Exception as e:
         logging.error(f"Error during table extraction: {e}")
+        break
 
 
 ########################################LINK EXTRACTION ENDS########################################
@@ -306,23 +317,23 @@ def process_link(link):
         driver.quit()
 
 
-storing = 0
-with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-    iterable = list(executor.map(process_link, links))
-    for it in iterable:
-        if it:
-            for key, value in it.items():
-                if key == "_id" or key == "Professional_Rera_certificate_no":
-                    continue
-                if isinstance(value, list):
-                    value = ", ".join(value)
-                df_scraped.at[storing, key] = value
-        storing += 1
-        logging.info(f"Processed {storing} links")
-        if (storing % 10 == 0) or (storing == len(links)):
-            save_progress(df_scraped)
+# storing = 0
+# with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+#     iterable = list(executor.map(process_link, links))
+#     for it in iterable:
+#         if it:
+#             for key, value in it.items():
+#                 if key == "_id" or key == "Professional_Rera_certificate_no":
+#                     continue
+#                 if isinstance(value, list):
+#                     value = ", ".join(value)
+#                 df_scraped.at[storing, key] = value
+#         storing += 1
+#         logging.info(f"Processed {storing} links")
+#         if (storing % 10 == 0) or (storing == len(links)):
+#             save_progress(df_scraped)
 
-save_progress(df_scraped)
+# save_progress(df_scraped)
 
 # Close the main driver
 driver.quit()
