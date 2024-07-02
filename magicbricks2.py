@@ -61,28 +61,31 @@ df = pd.DataFrame(
     ]
 )
 
-seeProDetail
-stopPage = true
 visited_urls = set()
 counter = 0
 while True:
     try:
         # elements_to_click = driver.find_elements(By.CLASS_NAME, "srpBlock")
-        urls_of_each_page = driver.find_elements(
+        elements = driver.find_elements(
             By.XPATH, "//span[contains(@class,'seeProDetail')]/a[1]"
         )
-        print(len(elements_to_click))
-        for element in elements_to_click:
+        urls_of_each_page = [element.get_attribute("href") for element in elements]
+        print(len(urls_of_each_page))
+        for url in urls_of_each_page:
             details = {}
-            element.click()
-            WebDriverWait(driver, 30).until(EC.number_of_windows_to_be(2))
-            driver.switch_to.window(driver.window_handles[-1])
-            WebDriverWait(driver, 10).until(
+            local_driver = webdriver.Chrome(
+                service=Service(executable_path="./chromedriver"), options=options
+            )
+            if url not in visited_urls:
+                local_driver.get(url)
+            else:
+                continue
+            WebDriverWait(local_driver, 20).until(
                 EC.presence_of_element_located((By.TAG_NAME, "body"))
             )
             ##FUCK THESE LINES BELOW
             # try:
-            #     more_data_buttons = driver.find_elements(By.CLASS_NAME, "moreData")
+            #     more_data_buttons = local_driver.find_elements(By.CLASS_NAME, "moreData")
             # except NoSuchElementException:
             #     print("Error while extracting the more buttons")
             # if "showFullAboutVeriAgent();" in more_data_buttons[0].get_attribute(
@@ -90,79 +93,120 @@ while True:
             # ):
             #     more_data_buttons[0].click()
             #####TILL HERE
+            first_case = None
             try:
-                details["About Company"] = driver.find_element(
-                    By.XPATH, '//span[contains(@id,"shortDescVre")]'
-                ).text
-                details["About Company"] += driver.find_element(
-                    By.XPATH, '//span[contains(@id,"fullDescvery")]'
-                ).text
-            except NoSuchElementException:
-                print("The more button did not exist")
-            try:
-                details["About Company"] = driver.find_element(
-                    By.XPATH, "//span[contains(@id,'fullDesc')]"
-                ).text
-            except NoSuchElementException:
-                pass
-            try:
-                about_the_agent = driver.find_element(
-                    By.XPATH, "//div[contains(text(),'About the Agent')]//span[1]"
+                more_button = local_driver.find_element(
+                    By.XPATH,
+                    "//div[contains(text(),'About the Agent')]/following-sibling::div[1]/a[1]",
                 )
-                if not about_the_agent.get_attribute("id"):
-                    details["About Company"] = about_the_agent.text
-            except NoSuchElementException:
-                pass
+                try:
+                    first_case = local_driver.find_element(
+                        By.XPATH, '//span[contains(@id,"shortDescVre")]'
+                    ).text
+                    first_case += local_driver.find_element(
+                        By.XPATH, '//span[contains(@id,"fullDescvery")]'
+                    ).text
+                    details["About Company"] = first_case
+                except NoSuchElementException:
+                    pass
+                if not first_case:
+                    try:
+                        second_case = local_driver.find_element(
+                            By.XPATH, "//span[contains(@id,'fullDesc')]"
+                        ).text
+                        details["About Company"] = second_case
+                    except NoSuchElementException:
+                        pass
+            except NoSuchElementException as e:
+                details["About Company"] = local_driver.find_element(
+                    By.XPATH,
+                    "//div[contains(text(),'About the Agent')]/following-sibling::div[1]/span[1]",
+                ).text
+
+            # first_case = None
+            # second_case = None
+            # third_case = None
+            # try:
+            #     first_case = local_driver.find_element(
+            #         By.XPATH, '//span[contains(@id,"shortDescVre")]'
+            #     ).text
+            #     first_case += local_driver.find_element(
+            #         By.XPATH, '//span[contains(@id,"fullDescvery")]'
+            #     ).text
+            # except NoSuchElementException:
+            #     print("The more button did not exist")
+            # try:
+            #     second_case = local_driver.find_element(
+            #         By.XPATH, "//span[contains(@id,'fullDesc')]"
+            #     ).text
+            # except NoSuchElementException:
+            #     pass
+            # try:
+            #     third_case = local_driver.find_element(
+            #         By.XPATH, "//div[contains(text(),'About the Agent')]//span[1]"
+            #     )
+            #     if third_case.get_attribute("id"):
+            #         third_case = None
+            #     else:
+            #         third_case = third_case.text
+            # except NoSuchElementException:
+            #     pass
+            # if first_case:
+            #     details["About Company"] = first_case
+            # elif second_case:
+            #     details["About Company"] = second_case
+            # elif third_case:
+            #     details["About Company"] = third_case
             try:
-                details["Deals in"] = driver.find_element(
+                details["Deals in"] = local_driver.find_element(
                     By.XPATH,
                     '//div[contains(text(),"Dealing In")]/following-sibling::div[1]',
                 ).text
             except NoSuchElementException:
                 print("some issue with extracting deals in")
             try:
-                details["Company Name"] = driver.find_element(
+                details["Company Name"] = local_driver.find_element(
                     By.CLASS_NAME, "agentName"
                 ).text
             except NoSuchElementException:
                 details["Company Name"] = "N/A"
             try:
-                details["RERA ID"] = driver.current_url.split("-")[-1]
+                details["RERA ID"] = local_driver.current_url.split("-")[-1]
             except IndexError:
                 details["RERA ID"] = "N/A"
             try:
-                details["Name"] = driver.find_element(By.CLASS_NAME, "agntName").text
+                details["Name"] = local_driver.find_element(
+                    By.CLASS_NAME, "agntName"
+                ).text
             except NoSuchElementException:
                 details["Name"] = "N/A"
             try:
-                details["Operating since"] = driver.find_element(
+                details["Operating since"] = local_driver.find_element(
                     By.XPATH,
                     '//div[contains(text(),"Operating Since")]/following-sibling::div[1]',
                 ).text
             except NoSuchElementException:
                 details["Operating since"] = "N/A"
             try:
-                details["Properties For Sale"] = driver.find_element(
+                details["Properties For Sale"] = local_driver.find_element(
                     By.XPATH,
                     "//div[contains(text(),'Properties for Sale')]/following-sibling::div[1]",
                 ).text
             except NoSuchElementException:
                 details["Properties For Sale"] = "N/A"
             try:
-                details["Properties For rent"] = driver.find_element(
+                details["Properties For rent"] = local_driver.find_element(
                     By.XPATH,
                     "//div[contains(text(),'Properties for Rent')]/following-sibling::div[1]",
                 ).text
             except NoSuchElementException:
                 details["Properties For rent"] = "N/A"
-            # details["Address"] = driver.find_element(By.CLASS_NAME, "mapAddress").text
+            # details["Address"] = local_driver.find_element(
+            #     By.XPATH, "//span[contains(@class,'mapAddress')]"
+            # ).text
             df.loc[counter] = details
             counter += 1
-            driver.close()
-            driver.switch_to.window(driver.window_handles[0])
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.TAG_NAME, "body"))
-            )
+            local_driver.quit()
             save_progress(df)
     except Exception as e:
         print(e)
