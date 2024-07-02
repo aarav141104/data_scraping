@@ -1,3 +1,4 @@
+import requests
 from selenium import webdriver
 from bs4 import BeautifulSoup
 from selenium.webdriver.chrome.service import Service
@@ -12,22 +13,28 @@ import concurrent.futures
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from selenium.webdriver.chrome.options import Options
+import logging
 
-service = Service(executable_path="./chromedriver")
-driver = webdriver.Chrome(service=service)
-url = "https://www.magicbricks.com/residential-real-estate-agents-in-mumbai-pppagent"
-xpath = "//span[contains(@class,'seeProDetail')]//a"
-df = pd.read_excel("CP data fields to be scraped (1).xlsx", sheet_name="Portals Data")
-magicbricks_fields = df.iloc[:, 0].dropna().tolist()  # Fields for Magicbricks
-df_magic = pd.DataFrame(columns=magicbricks_fields)
-magic_dict = {field: None for field in magicbricks_fields}
-driver.get(url)
-see_details = WebDriverWait(driver, 6).until(
-    EC.presence_of_all_elements_located((By.XPATH, xpath))
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
 
-def save_progress(df_scraped, file_path="output.xlsx"):
+# service = Service(executable_path="./chromedriver")
+# driver = webdriver.Chrome(service=service)
+# url = "https://www.magicbricks.com/residential-real-estate-agents-in-mumbai-pppagent"
+# xpath = "//span[contains(@class,'seeProDetail')]//a"
+# df = pd.read_excel("CP data fields to be scraped (1).xlsx", sheet_name="Portals Data")
+# magicbricks_fields = df.iloc[:, 0].dropna().tolist()  # Fields for Magicbricks
+# df_magic = pd.DataFrame(columns=magicbricks_fields)
+# magic_dict = {field: None for field in magicbricks_fields}
+# driver.get(url)
+# see_details = WebDriverWait(driver, 6).until(
+#     EC.presence_of_all_elements_located((By.XPATH, xpath))
+# )
+
+
+def save_progress(df_scraped, file_path="output2.xlsx"):
     df_scraped.to_excel(file_path, index=False)
     adjust_column_width(file_path)
 
@@ -117,141 +124,215 @@ def properties_for_sale_1(url):
     #     print(f"An unexpected error occurred: {e}")
 
 
-def process_link(see_detail):
-    global magic_dict
-    detail_url = see_detail.get_attribute("href")
-    driver.get(detail_url)
-    WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.TAG_NAME, "body"))
+def process_link(page_num):
+    list_of_dictionaries = []
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    driver = webdriver.Chrome(
+        service=Service(executable_path="./chromedriver"), options=options
     )
+
+    url = f"https://www.magicbricks.com/residential-real-estate-agents-in-mumbai-pppagent/Page-{page_num}"
+    logging.info(f"Fetching URL: {url}")
+
+    driver.get(url)
     try:
-        magic_dict["Name"] = driver.find_element(
-            By.XPATH,
-            '//div[@class="fedImg"]/following-sibling::span[@class="agntName"]',
-        ).text
-    except:
-        magic_dict["Name"] = "N/A"
-
-    try:
-        magic_dict["Company Name"] = driver.find_element(
-            By.XPATH, '//div[@class="agentNameLoc"]//div[@class="agentName"]'
-        ).text
-    except:
-        magic_dict["Company Name"] = "N/A"
-
-    magic_dict["RERA ID "] = detail_url.split("-")[-1]
-
-    try:
-        magic_dict["Operating since"] = driver.find_element(
-            By.XPATH,
-            '//div[contains(text(),"Operating Since")]/following-sibling::div[1]',
-        ).text
-    except:
-        magic_dict["Operating since"] = "N/A"
-
-    try:
-        first = driver.find_element(
-            By.XPATH,
-            '//div[contains(text(),"Properties for Sale") and contains(@class,"column_1")]/following-sibling::div[1]',
-        )
-        properties_for_sale = first.text
-        magic_dict["Properties For Sale"] = properties_for_sale
-    except:
-        magic_dict["Properties For Sale"] = "N/A"
-
-    try:
-        first = driver.find_element(
-            By.XPATH,
-            '//div[contains(text(),"Properties for Rent") and contains(@class,"column_1")]/following-sibling::div[1]',
-        )
-        properties_for_rent = first.text
-        magic_dict["Properties For rent"] = properties_for_rent
-    except:
-        magic_dict["Properties For rent"] = "N/A"
-
-    try:
-        first = driver.find_element(
-            By.XPATH,
-            '//div[contains(text(),"Address") and contains(@class,"column_1")]/following-sibling::div[1]',
-        )
-        second = first.find_element(
-            By.XPATH, "./following-sibling::br[1]/following-sibling::text()"
-        )
-        magic_dict["Address"] = first.text + "\n" + second
-    except:
-        magic_dict["Address"] = "N/A"
-
-    try:
-        magic_dict["Deals in"] = driver.find_element(
-            By.XPATH,
-            '//div[contains(text(),"Dealing In") and contains(@class,"column_1")]/following-sibling::div[1]',
-        ).text
-    except:
-        magic_dict["Deals in"] = "N/A"
-
-    try:
-        more_button = driver.find_element(
-            By.XPATH,
-            '//div[contains(text(),"Operating In") and contains(@class,"column_1")]/following-sibling::div[1]//span[1]//a[contains(text(),"+ more")]',
-        )
-        more_button.click()
-        operates_in = driver.find_element(
-            By.XPATH,
-            '//div[contains(text(),"Operating In") and contains(@class,"column_1")]/following-sibling::div[1]//span[2]',
-        )
-        operates_in_data = ""
-        for item in operates_in.find_elements(By.XPATH, ".//a"):
-            # if item.find_element(By.XPATH, "./following-sibling::*[1]").tag_name != "a":
-            #     break
-            operates_in_data += item.text + ","
-        magic_dict["Operates in"] = operates_in_data
-    except:
-        magic_dict["Operates in"] = "N/A"
-
-    try:
-        first = driver.find_element(
-            By.XPATH,
-            '//div[contains(text(),"About the Agent")]/following-sibling::div[1]//span[1]',
-        ).text
-
-        try:
-            more_button = driver.find_element(
-                By.XPATH,
-                '//div[contains(@class,"highlightsInfo aboutAgentTxt")]//a[contains(@class,"moreData") and contains(text(),"+ more")]',
+        WebDriverWait(driver, 30).until(
+            EC.presence_of_all_elements_located(
+                (By.XPATH, '//div[contains(@class,"srpBlock")]')
             )
-            driver.execute_script("arguments[0].click();", more_button)
+        )
+    except Exception as e:
+        logging.error(f"Error waiting for srpBlock elements on page {page_num}: {e}")
+        driver.quit()
+        return list_of_dictionaries
 
-            try:
-                second = driver.find_element(
-                    By.XPATH,
-                    '//div[contains(text(),"About the Agent")]/following-sibling::div[1]//span[2]',
-                ).text
-            except NoSuchElementException:
-                print("Second span not found")
-                second = ""
+    all_stuff = driver.find_elements(By.XPATH, '//div[contains(@class,"srpBlock")]')
+    if not all_stuff:
+        logging.warning(f"No srpBlock found on page {page_num}")
+        driver.quit()
+        return list_of_dictionaries
 
-        except NoSuchElementException:
-            print("More button not found")
-            second = ""
+    for stuff_index, stuff in enumerate(all_stuff):
+        try:
+            details = {}
+            logging.info(f"Processing stuff {stuff_index + 1} on page {page_num}")
+            stuff.click()
+            WebDriverWait(driver, 10).until(EC.number_of_windows_to_be(2))
+            driver.switch_to.window(driver.window_handles[-1])
 
-        magic_dict["About Company"] = first + second
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.TAG_NAME, "body"))
+            )
+            local_soup = BeautifulSoup(driver.page_source, "html.parser")
+            name_element = local_soup.find("div", {"class": "agentName"})
+            details["Name"] = name_element.text.strip() if name_element else "N/A"
 
-    except NoSuchElementException:
-        print("Some issue with locating elements")
-        magic_dict["About Company"] = "N/A"
-    properties_for_sale_1(detail_url)
+            list_of_dictionaries.append(details)
+            driver.close()
+            driver.switch_to.window(driver.window_handles[0])
+        except Exception as e:
+            logging.error(
+                f"Error processing stuff {stuff_index + 1} on page {page_num}: {e}"
+            )
+            if len(driver.window_handles) > 1:
+                driver.close()
+                driver.switch_to.window(driver.window_handles[0])
+
+    driver.quit()
+    return list_of_dictionaries
+    # detail_url = see_detail.get_attribute("href")
+    # driver.get(detail_url)
+    # WebDriverWait(driver, 10).until(
+    #     EC.presence_of_element_located((By.TAG_NAME, "body"))
+    # )
+    # try:
+    #     magic_dict["Name"] = driver.find_element(
+    #         By.XPATH,
+    #         '//div[@class="fedImg"]/following-sibling::span[@class="agntName"]',
+    #     ).text
+    # except:
+    #     magic_dict["Name"] = "N/A"
+
+    # try:
+    #     magic_dict["Company Name"] = driver.find_element(
+    #         By.XPATH, '//div[@class="agentNameLoc"]//div[@class="agentName"]'
+    #     ).text
+    # except:
+    #     magic_dict["Company Name"] = "N/A"
+
+    # magic_dict["RERA ID "] = detail_url.split("-")[-1]
+
+    # try:
+    #     magic_dict["Operating since"] = driver.find_element(
+    #         By.XPATH,
+    #         '//div[contains(text(),"Operating Since")]/following-sibling::div[1]',
+    #     ).text
+    # except:
+    #     magic_dict["Operating since"] = "N/A"
+
+    # try:
+    #     first = driver.find_element(
+    #         By.XPATH,
+    #         '//div[contains(text(),"Properties for Sale") and contains(@class,"column_1")]/following-sibling::div[1]',
+    #     )
+    #     properties_for_sale = first.text
+    #     magic_dict["Properties For Sale"] = properties_for_sale
+    # except:
+    #     magic_dict["Properties For Sale"] = "N/A"
+
+    # try:
+    #     first = driver.find_element(
+    #         By.XPATH,
+    #         '//div[contains(text(),"Properties for Rent") and contains(@class,"column_1")]/following-sibling::div[1]',
+    #     )
+    #     properties_for_rent = first.text
+    #     magic_dict["Properties For rent"] = properties_for_rent
+    # except:
+    #     magic_dict["Properties For rent"] = "N/A"
+
+    # try:
+    #     first = driver.find_element(
+    #         By.XPATH,
+    #         '//div[contains(text(),"Address") and contains(@class,"column_1")]/following-sibling::div[1]',
+    #     )
+    #     second = first.find_element(
+    #         By.XPATH, "./following-sibling::br[1]/following-sibling::text()"
+    #     )
+    #     magic_dict["Address"] = first.text + "\n" + second
+    # except:
+    #     magic_dict["Address"] = "N/A"
+
+    # try:
+    #     magic_dict["Deals in"] = driver.find_element(
+    #         By.XPATH,
+    #         '//div[contains(text(),"Dealing In") and contains(@class,"column_1")]/following-sibling::div[1]',
+    #     ).text
+    # except:
+    #     magic_dict["Deals in"] = "N/A"
+
+    # try:
+    #     more_button = driver.find_element(
+    #         By.XPATH,
+    #         '//div[contains(text(),"Operating In") and contains(@class,"column_1")]/following-sibling::div[1]//span[1]//a[contains(text(),"+ more")]',
+    #     )
+    #     more_button.click()
+    #     operates_in = driver.find_element(
+    #         By.XPATH,
+    #         '//div[contains(text(),"Operating In") and contains(@class,"column_1")]/following-sibling::div[1]//span[2]',
+    #     )
+    #     operates_in_data = ""
+    #     for item in operates_in.find_elements(By.XPATH, ".//a"):
+    #         # if item.find_element(By.XPATH, "./following-sibling::*[1]").tag_name != "a":
+    #         #     break
+    #         operates_in_data += item.text + ","
+    #     magic_dict["Operates in"] = operates_in_data
+    # except:
+    #     magic_dict["Operates in"] = "N/A"
+
+    # try:
+    #     first = driver.find_element(
+    #         By.XPATH,
+    #         '//div[contains(text(),"About the Agent")]/following-sibling::div[1]//span[1]',
+    #     ).text
+
+    #     try:
+    #         more_button = driver.find_element(
+    #             By.XPATH,
+    #             '//div[contains(@class,"highlightsInfo aboutAgentTxt")]//a[contains(@class,"moreData") and contains(text(),"+ more")]',
+    #         )
+    #         driver.execute_script("arguments[0].click();", more_button)
+
+    #         try:
+    #             second = driver.find_element(
+    #                 By.XPATH,
+    #                 '//div[contains(text(),"About the Agent")]/following-sibling::div[1]//span[2]',
+    #             ).text
+    #         except NoSuchElementException:
+    #             print("Second span not found")
+    #             second = ""
+
+    #     except NoSuchElementException:
+    #         print("More button not found")
+    #         second = ""
+
+    #     magic_dict["About Company"] = first + second
+
+    # except NoSuchElementException:
+    #     print("Some issue with locating elements")
+    #     magic_dict["About Company"] = "N/A"
+    # properties_for_sale_1(detail_url)
 
 
-c = 0
-with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-    iterable = list(executor.map(process_link, see_details[:10]))
-    for it in iterable:
-        df_magic.loc[c] = it
-    c += 1
-    if (c % 10 == 0) or (c == len(see_details)):
-        save_progress(df_magic)
-
-save_progress(df_magic)
+def scrape_pages(page_range):
+    all_details = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        results = executor.map(process_link, page_range)
+        for result in results:
+            all_details.extend(result)
+    return all_details
 
 
-driver.quit()
+# Scrape pages and collect data
+page_range = range(1, 2)
+all_details = scrape_pages(page_range)
+
+# Save collected data
+data_frame = pd.DataFrame(all_details)
+save_progress(data_frame)
+
+# c = 0
+# with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+#     iterable = list(executor.map(process_link, see_details[:10]))
+#     for it in iterable:
+#         df_magic.loc[c] = it
+#     c += 1
+#     if (c % 10 == 0) or (c == len(see_details)):
+#         save_progress(df_magic)
+
+# save_progress(df_magic)
+
+
+# driver.quit()
