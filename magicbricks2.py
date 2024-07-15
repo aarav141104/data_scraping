@@ -1,4 +1,5 @@
 import concurrent.futures
+import time
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -14,6 +15,10 @@ import pickle
 import logging
 import requests
 import traceback
+
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 
 def adjust_column_width(file_path):
@@ -58,20 +63,32 @@ df = pd.DataFrame(
         "Properties For Sale",
         "Properties For Rent",
         "Address",
+        "Operates In",
+        "Project",
+        "Ticket Size",
+        "Location",
+        "Config",
     ]
 )
+page_num = 1
+link_in_a_page = 1
+property_number = 1
 
 visited_urls = set()
 counter = 0
 while True:
     try:
-        # elements_to_click = driver.find_elements(By.CLASS_NAME, "srpBlock")
+        logging.info(f"in page number {page_num}")
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.TAG_NAME, "body"))
+        )
         elements = driver.find_elements(
             By.XPATH, "//span[contains(@class,'seeProDetail')]/a[1]"
         )
         urls_of_each_page = [element.get_attribute("href") for element in elements]
-        print(len(urls_of_each_page))
+        print(f"amount of links in this page : {len(urls_of_each_page)}")
         for url in urls_of_each_page:
+            logging.info(f"IN LINK NUMBER {link_in_a_page}")
             details = {}
             local_driver = webdriver.Chrome(
                 service=Service(executable_path="./chromedriver"), options=options
@@ -122,41 +139,6 @@ while True:
                     By.XPATH,
                     "//div[contains(text(),'About the Agent')]/following-sibling::div[1]/span[1]",
                 ).text
-
-            # first_case = None
-            # second_case = None
-            # third_case = None
-            # try:
-            #     first_case = local_driver.find_element(
-            #         By.XPATH, '//span[contains(@id,"shortDescVre")]'
-            #     ).text
-            #     first_case += local_driver.find_element(
-            #         By.XPATH, '//span[contains(@id,"fullDescvery")]'
-            #     ).text
-            # except NoSuchElementException:
-            #     print("The more button did not exist")
-            # try:
-            #     second_case = local_driver.find_element(
-            #         By.XPATH, "//span[contains(@id,'fullDesc')]"
-            #     ).text
-            # except NoSuchElementException:
-            #     pass
-            # try:
-            #     third_case = local_driver.find_element(
-            #         By.XPATH, "//div[contains(text(),'About the Agent')]//span[1]"
-            #     )
-            #     if third_case.get_attribute("id"):
-            #         third_case = None
-            #     else:
-            #         third_case = third_case.text
-            # except NoSuchElementException:
-            #     pass
-            # if first_case:
-            #     details["About Company"] = first_case
-            # elif second_case:
-            #     details["About Company"] = second_case
-            # elif third_case:
-            #     details["About Company"] = third_case
             try:
                 details["Deals in"] = local_driver.find_element(
                     By.XPATH,
@@ -195,19 +177,103 @@ while True:
             except NoSuchElementException:
                 details["Properties For Sale"] = "N/A"
             try:
-                details["Properties For rent"] = local_driver.find_element(
+                details["Properties For Rent"] = local_driver.find_element(
                     By.XPATH,
                     "//div[contains(text(),'Properties for Rent')]/following-sibling::div[1]",
                 ).text
             except NoSuchElementException:
-                details["Properties For rent"] = "N/A"
-            # details["Address"] = local_driver.find_element(
-            #     By.XPATH, "//span[contains(@class,'mapAddress')]"
-            # ).text
+                details["Properties For Rent"] = "N/A"
+            try:
+                details["Operates In"] = local_driver.find_element(
+                    By.XPATH,
+                    "//div[contains(text(),'Operating In')]/following-sibling::div[1]/span[contains(@id,'locFull')][1]",
+                ).text
+            except NoSuchElementException:
+                details["Operates In"] = "N/A"
+            properties_button = local_driver.find_element(
+                By.XPATH, "//a[contains(@class,'prop_sale_seeAll')]"
+            )
+            properties_button.click()
+            #####The property thing starts from here##############
+            the_property_page = local_driver.window_handles[-1]
+            local_driver.switch_to.window(the_property_page)
+            WebDriverWait(local_driver, 20).until(
+                EC.presence_of_element_located((By.TAG_NAME, "body"))
+            )
+            local_driver.execute_script(
+                "window.scrollTo(0,document.body.scrollHeight);"
+            )
+            local_driver.implicitly_wait(5)
+            all_properties = local_driver.find_elements(By.CLASS_NAME, "mb-srp__list")
+            amount_of_properties = len(all_properties)
+            ######Essentially ends here#################
+            details["Project"] = []
+            details["Ticket Size"] = []
+            details["Location"] = []
+            details["Config"] = []
+            print(f"Amount of properties : {amount_of_properties}")
+            for i in range(amount_of_properties):
+                all_properties[i].click()
+                local_driver.switch_to.window(local_driver.window_handles[-1])
+                WebDriverWait(local_driver, 20).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                )
+                logging.info(f"IN PROPERTY NUMBER {property_number}")
+                try:
+                    project_name = local_driver.find_element(
+                        By.XPATH,
+                        "//div[contains(text(),'Project') and contains(@class,'mb-ldp__dtls__body__list--label')]/following-sibling::div[1]",
+                    ).text
+                except Exception as e:
+                    project_name = "N/A"
+                details["Project"].append(project_name)
+                try:
+                    ticket_size = local_driver.find_element(
+                        By.XPATH,
+                        "//div[contains(@class,'mb-ldp__dtls__flex-row pad-b-4')]/div[contains(@class,'mb-ldp__dtls__price')]",
+                    ).text
+                except Exception as e:
+                    ticket_size = "N/A"
+                details["Ticket Size"].append(ticket_size)
+                try:
+                    location = local_driver.find_element(
+                        By.XPATH,
+                        "//div[contains(@class,'mb-ldp__more-dtl__list--label') and contains(text(),'Address')]/following-sibling::div[1]",
+                    ).text
+                except Exception as e:
+                    location = "N/A"
+                details["Location"].append(location)
+                try:
+                    config = local_driver.find_element(
+                        By.XPATH,
+                        "//div[contains(@class,'mb-ldp__dtls__body__summary--left mb-ldp__dtls__body__summary--dflex')]",
+                    ).text
+                except Exception as e:
+                    config = "N/A"
+                details["Config"].append(config)
+                local_driver.close()
+                local_driver.switch_to.window(the_property_page)
+                WebDriverWait(local_driver, 20).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                )
+                all_properties = local_driver.find_elements(
+                    By.CLASS_NAME, "mb-srp__list"
+                )
+                property_number += 1
+            details["Project"] = ",".join(details["Project"])
+            details["Ticket Size"] = ",".join(details["Ticket Size"])
+            details["Location"] = ",".join(details["Location"])
+            details["Config"] = ",".join(details["Config"])
             df.loc[counter] = details
             counter += 1
             local_driver.quit()
             save_progress(df)
+            link_in_a_page += 1
+            property_number = 1
+        next_page = driver.find_element(By.XPATH, "//*[contains(text(),'Next Page')]")
+        next_page.click()
+        page_num += 1
+        link_in_a_page = 1
     except Exception as e:
         print(e)
         traceback.print_exc()
